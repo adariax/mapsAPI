@@ -15,9 +15,16 @@ class MainWindow(QWidget, Ui_MainWindow):
         super().__init__()
         super().setupUi(self)
         self.static_api_params = {'ll': '37.589434,55.734088',
-                                  'z': 13,
-                                  'l': 'sat',
+                                  'z': 2,
+                                  'l': 'map',
                                   'size': '450,450'}
+
+        # Connect layouts buttons
+        self.rb_map.toggled.connect(self.change_layouts)
+        self.rb_sat.toggled.connect(self.change_layouts)
+        self.cb_trf.stateChanged.connect(self.change_layouts)
+        self.cb_skl.stateChanged.connect(self.change_layouts)
+
         self.update_image()
 
     def update_image(self):
@@ -34,13 +41,14 @@ class MainWindow(QWidget, Ui_MainWindow):
 
     def move_map(self, dx, dy):
         x, y = map(float, self.static_api_params["ll"].split(','))
-        move_delta = 180 / (2 ** self.static_api_params["z"])
-        x = (x + move_delta * dx * 2) % 360
-        if x > 180:
-            x -= 360
+        move_delta = 360 / (2 ** self.static_api_params["z"])
+        x = (x + move_delta * dx) % 180
+        if x > 90:
+            x -= 180
         y = (y + move_delta * dy) % 180
         if y > 90:
             y -= 180
+        print(x, y)
         self.static_api_params["ll"] = '%f,%f' % (x, y)
         self.update_image()
 
@@ -51,6 +59,17 @@ class MainWindow(QWidget, Ui_MainWindow):
         if not (0 <= z <= 17):
             return
         self.static_api_params["z"] = z
+        self.update_image()
+
+    def change_layouts(self):
+        # Update layouts information from buttons
+        layouts = ['map' if self.rb_map.isChecked() else 'sat']  # main layout
+        if self.cb_skl.isChecked():  # Toponyms name
+            layouts.append('skl')
+        if self.cb_trf.isChecked():  # Traffic jams
+            layouts.append('trf')
+
+        self.static_api_params["l"] = ','.join(layouts)
         self.update_image()
 
     def keyPressEvent(self, a0: QtGui.QKeyEvent) -> None:
