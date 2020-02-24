@@ -16,8 +16,15 @@ class MainWindow(QWidget, Ui_MainWindow):
         super().setupUi(self)
         self.static_api_params = {'ll': '37.589434,55.734088',
                                   'z': 2,
-                                  'l': 'sat',
+                                  'l': 'map',
                                   'size': '450,450'}
+
+        # Connect layouts buttons
+        self.rb_map.toggled.connect(self.change_layouts)
+        self.rb_sat.toggled.connect(self.change_layouts)
+        self.cb_trf.stateChanged.connect(self.change_layouts)
+        self.cb_skl.stateChanged.connect(self.change_layouts)
+
         self.update_image()
 
     def update_image(self):
@@ -52,6 +59,17 @@ class MainWindow(QWidget, Ui_MainWindow):
         if not (0 <= z <= 17):
             return
         self.static_api_params["z"] = z
+        self.update_image()
+
+    def change_layouts(self):
+        # Update layouts information from buttons
+        layouts = ['map' if self.rb_map.isChecked() else 'sat']  # main layout
+        if self.cb_skl.isChecked():  # Toponyms name
+            layouts.append('skl')
+        if self.cb_trf.isChecked():  # Traffic jams
+            layouts.append('trf')
+
+        self.static_api_params["l"] = ','.join(layouts)
         self.update_image()
 
     def keyPressEvent(self, a0: QtGui.QKeyEvent) -> None:
