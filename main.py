@@ -15,7 +15,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         super().__init__()
         super().setupUi(self)
         self.static_api_params = {'ll': '37.589434,55.734088',
-                                  'z': 2,
+                                  'z': 13,
                                   'l': 'sat',
                                   'size': '450,450'}
         self.update_image()
@@ -34,14 +34,13 @@ class MainWindow(QWidget, Ui_MainWindow):
 
     def move_map(self, dx, dy):
         x, y = map(float, self.static_api_params["ll"].split(','))
-        move_delta = 360 / (2 ** self.static_api_params["z"])
-        x = (x + move_delta * dx) % 180
-        if x > 90:
-            x -= 180
+        move_delta = 180 / (2 ** self.static_api_params["z"])
+        x = (x + move_delta * dx * 2) % 360
+        if x > 180:
+            x -= 360
         y = (y + move_delta * dy) % 180
         if y > 90:
             y -= 180
-        print(x, y)
         self.static_api_params["ll"] = '%f,%f' % (x, y)
         self.update_image()
 
