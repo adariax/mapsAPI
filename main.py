@@ -15,7 +15,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         super().__init__()
         super().setupUi(self)
         self.static_api_params = {'ll': '37.589434,55.734088',
-                                  'z': 2,
+                                  'z': 13,
                                   'l': 'map',
                                   'size': '450,450'}
 
@@ -24,6 +24,9 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.rb_sat.toggled.connect(self.change_layouts)
         self.cb_trf.stateChanged.connect(self.change_layouts)
         self.cb_skl.stateChanged.connect(self.change_layouts)
+
+        # Redirect focus from buttons
+        self.setFocusPolicy(Qt.TabFocus)
 
         self.update_image()
 
@@ -42,13 +45,12 @@ class MainWindow(QWidget, Ui_MainWindow):
     def move_map(self, dx, dy):
         x, y = map(float, self.static_api_params["ll"].split(','))
         move_delta = 180 / (2 ** self.static_api_params["z"])
-        x = (x + move_delta * dx * 2) % 360
+        x = (x + move_delta * 2 * dx) % 360
         if x > 180:
             x -= 360
         y = (y + move_delta * dy) % 180
         if y > 90:
             y -= 180
-        print(x, y)
         self.static_api_params["ll"] = '%f,%f' % (x, y)
         self.update_image()
 
