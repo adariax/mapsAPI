@@ -26,6 +26,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.cb_skl.stateChanged.connect(self.change_layouts)
 
         self.bt_search.clicked.connect(self.search_by_button)
+        self.bt_clean.clicked.connect(self.clean_result)
 
         self.update_image()
 
@@ -74,41 +75,32 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.update_image()
 
     def search_by_button(self):
+        self.clean_info()  # Clear info about past found toponym
+
         toponym_to_find = self.le_search.text()
 
-        # Make search by organization and geocoder
-
-        geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
+        # Make search attributes
         search_api_server = "https://search-maps.yandex.ru/v1/"
-
-        geocoder_params = {
-            "apikey": "40d1649f-0493-4b70-98ba-98533de7710b",
-            "geocode": toponym_to_find,
-            "format": "json"}
         search_params = {
             "apikey": "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3",
             "text": toponym_to_find,
             "lang": 'ru_RU'}
-
-        geocoder_response = requests.get(geocoder_api_server, params=geocoder_params)
+        # And get response
         search_response = requests.get(search_api_server, params=search_params)
 
-        if not geocoder_response:
+        if not search_response:
             return
 
-        geocoder_response_json = geocoder_response.json()
         search_response_json = search_response.json()
 
-        # Get list of toponyms for checking finding toponyms
-        geocoder_toponyms = geocoder_response_json["response"]["GeoObjectCollection"] \
-            ["featureMember"]
-        # Check if the Search by Org. couldn't found
-        if search_response_json['properties']['ResponseMetaData']['SearchRequest']['results']:
+        # Get list of toponyms for checking found toponym
+        search_toponyms = search_response_json['features']
+
+        if len(search_toponyms):  # Check if the search couldn't found
             toponym_coordinates = ','.join(map(str, search_response_json['features'][0] \
-                                               ["geometry"]["coordinates"]))
-        elif len(geocoder_toponyms):
-            toponym_coordinates = geocoder_toponyms[0]["GeoObject"] \
-                ["Point"]["pos"].replace(' ', ',')
+                ["geometry"]["coordinates"]))
+
+            self.show_info(search_toponyms[0])
         else:
             return  # Exit if the toponym weren't found
 
@@ -116,6 +108,28 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.static_api_params['pt'] = f'{toponym_coordinates},org'  # Make a point on the map
 
         self.update_image()
+
+    def show_info(self, found_toponym, post_code=False):
+        info_to_show = []
+        toponym = found_toponym['properties']
+        if 'GeocoderMetaData' in toponym.keys():  # Checking type of toponym: org. or geoobj.
+            info_to_show.append(toponym['GeocoderMetaData']['text'])
+        else:
+            info_to_show.append(toponym['CompanyMetaData']['address'])
+
+        for string in info_to_show:  # Append toponym's info to pt_info (PlainTextEdit)
+            self.pt_info.appendPlainText(string)
+
+    def clean_result(self):
+        self.remove_point()
+        self.clean_info()
+        self.update_image()
+
+    def remove_point(self):  # Delete all info about points on map
+        del self.static_api_params['pt']
+
+    def clean_info(self):  # Clean showed in pt_info (PlainTextEdit) address
+        self.pt_info.clear()
 
     def keyPressEvent(self, a0: QtGui.QKeyEvent) -> None:
         if a0.key() == Qt.Key_PageUp:
