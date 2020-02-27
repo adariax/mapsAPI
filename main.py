@@ -101,21 +101,39 @@ class MainWindow(QWidget, Ui_MainWindow):
                 ["geometry"]["coordinates"]))
 
             self.show_info(search_toponyms[0])
-        else:
-            return  # Exit if the toponym weren't found
+        else:  # If the toponym weren't found
+            self.clean_result()  # Delete  info about past toponym
+            return  # Exit
 
         self.static_api_params['ll'] = toponym_coordinates  # Update coords of founded toponym
         self.static_api_params['pt'] = f'{toponym_coordinates},org'  # Make a point on the map
 
         self.update_image()
 
-    def show_info(self, found_toponym, post_code=False):
+    def show_info(self, found_toponym):
         info_to_show = []
         toponym = found_toponym['properties']
         if 'GeocoderMetaData' in toponym.keys():  # Checking type of toponym: org. or geoobj.
             info_to_show.append(toponym['GeocoderMetaData']['text'])
         else:
             info_to_show.append(toponym['CompanyMetaData']['address'])
+
+        if self.cb_pcd.isChecked():
+            # Searching object's postal code
+            geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
+            geocoder_params = {
+                "apikey": "40d1649f-0493-4b70-98ba-98533de7710b",
+                "geocode": info_to_show[0],
+                "format": "json"}
+            response = requests.get(geocoder_api_server, params=geocoder_params)
+            json_response = response.json()
+            try:
+                postal_code = json_response["response"]["GeoObjectCollection"]["featureMember"][0] \
+                    ["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]["Address"]["postal_code"]
+
+                info_to_show.append(f'Индекс: {postal_code}')
+            except KeyError:  # If toponym has not postal code
+                pass
 
         for string in info_to_show:  # Append toponym's info to pt_info (PlainTextEdit)
             self.pt_info.appendPlainText(string)
