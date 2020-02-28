@@ -8,6 +8,10 @@ import requests
 import sys
 
 STATIC_API_URL = 'http://static-maps.yandex.ru/1.x/'
+GEOCODER_API_URL = "http://geocode-maps.yandex.ru/1.x/"
+GEOCODER_API_KEY = "40d1649f-0493-4b70-98ba-98533de7710b"
+SEARCH_URL = "https://search-maps.yandex.ru/v1/"
+SEARCH_KEY = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
 
 
 class MainWindow(QWidget, Ui_MainWindow):
@@ -19,6 +23,8 @@ class MainWindow(QWidget, Ui_MainWindow):
                                   'l': 'map',
                                   'size': '450,450'}
 
+        self.found_toponym = None  # Store toponym json if found
+
         # Connect layouts buttons
         self.rb_map.toggled.connect(self.change_layouts)
         self.rb_sat.toggled.connect(self.change_layouts)
@@ -27,6 +33,8 @@ class MainWindow(QWidget, Ui_MainWindow):
 
         self.bt_search.clicked.connect(self.search_by_button)
         self.bt_clean.clicked.connect(self.clean_result)
+
+        self.cb_pcd.stateChanged.connect(self.show_info)
 
         self.update_image()
 
@@ -75,18 +83,17 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.update_image()
 
     def search_by_button(self):
-        self.clean_info()  # Clear info about past found toponym
+        self.clean_result()  # Delete  info about past toponym
 
         toponym_to_find = self.le_search.text()
 
         # Make search attributes
-        search_api_server = "https://search-maps.yandex.ru/v1/"
         search_params = {
-            "apikey": "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3",
+            "apikey": SEARCH_KEY,
             "text": toponym_to_find,
             "lang": 'ru_RU'}
         # And get response
-        search_response = requests.get(search_api_server, params=search_params)
+        search_response = requests.get(SEARCH_URL, params=search_params)
 
         if not search_response:
             return
@@ -97,12 +104,11 @@ class MainWindow(QWidget, Ui_MainWindow):
         search_toponyms = search_response_json['features']
 
         if len(search_toponyms):  # Check if the search couldn't found
-            toponym_coordinates = ','.join(map(str, search_response_json['features'][0] \
-                ["geometry"]["coordinates"]))
+            toponym_coordinates = ','.join(map(str, search_toponyms[0]["geometry"]["coordinates"]))
 
-            self.show_info(search_toponyms[0])
+            self.found_toponym = search_toponyms[0]
+            self.show_info()
         else:  # If the toponym weren't found
-            self.clean_result()  # Delete  info about past toponym
             return  # Exit
 
         self.static_api_params['ll'] = toponym_coordinates  # Update coords of founded toponym
@@ -110,9 +116,14 @@ class MainWindow(QWidget, Ui_MainWindow):
 
         self.update_image()
 
-    def show_info(self, found_toponym):
+    def show_info(self):
+        self.pt_info.clear()
+
+        if self.found_toponym is None:  # If no toponym
+            return
+
         info_to_show = []
-        toponym = found_toponym['properties']
+        toponym = self.found_toponym['properties']
         if 'GeocoderMetaData' in toponym.keys():  # Checking type of toponym: org. or geoobj.
             info_to_show.append(toponym['GeocoderMetaData']['text'])
         else:
@@ -120,20 +131,19 @@ class MainWindow(QWidget, Ui_MainWindow):
 
         if self.cb_pcd.isChecked():
             # Searching object's postal code
-            geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
             geocoder_params = {
-                "apikey": "40d1649f-0493-4b70-98ba-98533de7710b",
+                "apikey": GEOCODER_API_KEY,
                 "geocode": info_to_show[0],
                 "format": "json"}
-            response = requests.get(geocoder_api_server, params=geocoder_params)
+            response = requests.get(GEOCODER_API_URL, params=geocoder_params)
             json_response = response.json()
             try:
-                postal_code = json_response["response"]["GeoObjectCollection"]["featureMember"][0] \
+                postal_code = json_response["response"]["GeoObjectCollection"]["featureMember"][0]\
                     ["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]["Address"]["postal_code"]
-
-                info_to_show.append(f'Индекс: {postal_code}')
             except KeyError:  # If toponym has not postal code
-                pass
+                postal_code = 'Not found'
+
+            info_to_show.append(f'Индекс: {postal_code}')
 
         for string in info_to_show:  # Append toponym's info to pt_info (PlainTextEdit)
             self.pt_info.appendPlainText(string)
@@ -144,9 +154,11 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.update_image()
 
     def remove_point(self):  # Delete all info about points on map
-        del self.static_api_params['pt']
+        if 'pt' in self.static_api_params:
+            del self.static_api_params['pt']
 
     def clean_info(self):  # Clean showed in pt_info (PlainTextEdit) address
+        self.found_toponym = None
         self.pt_info.clear()
 
     def keyPressEvent(self, a0: QtGui.QKeyEvent) -> None:
