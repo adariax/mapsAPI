@@ -18,10 +18,12 @@ class MainWindow(QWidget, Ui_MainWindow):
     def __init__(self):
         super().__init__()
         super().setupUi(self)
-        self.static_api_params = {'ll': '37.588392,55.734036',
-                                  'z': 13,
-                                  'l': 'map',
+        self.static_api_params = {'l': 'map',
                                   'size': '450,450'}
+
+        self._z = 13
+        self._ll = 37.588392, 55.734036
+        self.apply_cords()
 
         self.found_toponym = None  # Store toponym json if found
 
@@ -36,7 +38,36 @@ class MainWindow(QWidget, Ui_MainWindow):
 
         self.cb_pcd.stateChanged.connect(self.show_info)
 
+    @property
+    def ll(self):
+        return self._ll
+
+    @property
+    def z(self):
+        return self._z
+
+    def apply_cords(self):
+
+        x, y = self.ll
+        delta = 360 / (2 ** self.z)
+        lower_corner = ','.join(map(str, (x - delta, y - delta)))
+        upper_corner = ','.join(map(str, (x + delta, y + delta)))
+        self.static_api_params["bbox"] = lower_corner + '~' + upper_corner
         self.update_image()
+
+    @ll.setter
+    def ll(self, ll):
+        if not (0 <= ll[0] <= 360 and 0 <= ll[1] <= 180):
+            return
+        self._ll = ll
+        self.apply_cords()
+
+    @z.setter
+    def z(self, z):
+        if not (0 <= z <= 17):
+            return
+        self._z = z
+        self.apply_cords()
 
     def update_image(self):
         # Get image from staticAPI
@@ -51,25 +82,19 @@ class MainWindow(QWidget, Ui_MainWindow):
             self.map_container.setPixmap(img)
 
     def move_map(self, dx, dy):
-        x, y = map(float, self.static_api_params["ll"].split(','))
-        move_delta = 180 / (2 ** self.static_api_params["z"])
+        x, y = self.ll
+        move_delta = 180 / (2 ** self.z)
         x = (x + move_delta * 2 * dx) % 360
         if x > 180:
             x -= 360
         y = (y + move_delta * dy) % 180
         if y > 90:
             y -= 180
-        self.static_api_params["ll"] = '%f,%f' % (x, y)
-        self.update_image()
+        self.ll = x, y
 
     def change_scale(self, d: int):
         # d - {1, -1}
-        z = self.static_api_params["z"]
-        z += d
-        if not (0 <= z <= 17):
-            return
-        self.static_api_params["z"] = z
-        self.update_image()
+        self.z += d
 
     def change_layouts(self):
         # Update layouts information from buttons
@@ -111,10 +136,8 @@ class MainWindow(QWidget, Ui_MainWindow):
         else:  # If the toponym weren't found
             return  # Exit
 
-        self.static_api_params['ll'] = toponym_coordinates  # Update coords of founded toponym
         self.static_api_params['pt'] = f'{toponym_coordinates},org'  # Make a point on the map
-
-        self.update_image()
+        self.ll = toponym_coordinates  # Update coords of founded toponym
 
     def show_info(self):
         self.pt_info.clear()
@@ -138,7 +161,7 @@ class MainWindow(QWidget, Ui_MainWindow):
             response = requests.get(GEOCODER_API_URL, params=geocoder_params)
             json_response = response.json()
             try:
-                postal_code = json_response["response"]["GeoObjectCollection"]["featureMember"][0]\
+                postal_code = json_response["response"]["GeoObjectCollection"]["featureMember"][0] \
                     ["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]["Address"]["postal_code"]
             except KeyError:  # If toponym has not postal code
                 postal_code = 'Not found'
