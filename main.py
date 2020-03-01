@@ -1,3 +1,5 @@
+from pprint import pprint
+
 from PyQt5 import QtGui
 from PyQt5.QtWidgets import QWidget, QApplication
 from PyQt5.Qt import QPixmap, QImage, Qt
@@ -47,7 +49,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         return self._z
 
     def apply_cords(self):
-
+        # Translate z and ll to bbox and update image
         x, y = self.ll
         delta = 360 / (2 ** self.z)
         lower_corner = ','.join(map(str, (x - delta, y - delta)))
@@ -57,6 +59,7 @@ class MainWindow(QWidget, Ui_MainWindow):
 
     @ll.setter
     def ll(self, ll):
+        # Change center of map
         if not (0 <= ll[0] <= 360 and 0 <= ll[1] <= 180):
             return
         self._ll = ll
@@ -64,12 +67,15 @@ class MainWindow(QWidget, Ui_MainWindow):
 
     @z.setter
     def z(self, z):
+        # Change scale of map
         if not (0 <= z <= 17):
             return
         self._z = z
         self.apply_cords()
 
     def update_image(self):
+        pprint(self.static_api_params)
+
         # Get image from staticAPI
         response = requests.get(STATIC_API_URL, params=self.static_api_params)
         self.map_container.clear()
@@ -129,14 +135,15 @@ class MainWindow(QWidget, Ui_MainWindow):
         search_toponyms = search_response_json['features']
 
         if len(search_toponyms):  # Check if the search couldn't found
-            toponym_coordinates = ','.join(map(str, search_toponyms[0]["geometry"]["coordinates"]))
+            toponym_coordinates = tuple(map(float, search_toponyms[0]["geometry"]["coordinates"]))
 
             self.found_toponym = search_toponyms[0]
             self.show_info()
         else:  # If the toponym weren't found
             return  # Exit
 
-        self.static_api_params['pt'] = f'{toponym_coordinates},org'  # Make a point on the map
+        # Make a point on the map
+        self.static_api_params['pt'] = f'{",".join(map(str, toponym_coordinates))},org'
         self.ll = toponym_coordinates  # Update coords of founded toponym
 
     def show_info(self):
@@ -174,7 +181,6 @@ class MainWindow(QWidget, Ui_MainWindow):
     def clean_result(self):
         self.remove_point()
         self.clean_info()
-        self.update_image()
 
     def remove_point(self):  # Delete all info about points on map
         if 'pt' in self.static_api_params:
