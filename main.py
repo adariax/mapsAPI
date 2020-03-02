@@ -16,6 +16,11 @@ SEARCH_URL = "https://search-maps.yandex.ru/v1/"
 SEARCH_KEY = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
 
 
+def point_to_str(p):
+    """convert point to http format"""
+    return "%.8f" % p[0] + "," + "%.8f" % p[1]
+
+
 class MainWindow(QWidget, Ui_MainWindow):
     def __init__(self):
         super().__init__()
@@ -23,7 +28,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.static_api_params = {'l': 'map',
                                   'size': '450,450'}
 
-        self._z = 13
+        self._z = 4
         self._ll = 37.588392, 55.734036
         self.apply_cords()
 
@@ -51,16 +56,34 @@ class MainWindow(QWidget, Ui_MainWindow):
     def apply_cords(self):
         # Translate z and ll to bbox and update image
         x, y = self.ll
-        delta = 360 / (2 ** self.z)
-        lower_corner = ','.join(map(str, (x - delta, y - delta)))
-        upper_corner = ','.join(map(str, (x + delta, y + delta)))
-        self.static_api_params["bbox"] = lower_corner + '~' + upper_corner
+        e = 0
+        delta = (360 - e) / (2 ** self.z)
+        lower_corner = [x - delta / 2, y - delta / 2]
+        upper_corner = [x + delta / 2, y + delta / 2]
+
+        # Check borders and move map if get out
+        if lower_corner[0] <= -180:
+            xd = lower_corner[0] + 180
+            x -= xd
+        elif upper_corner[0] >= 180:
+            xd = upper_corner[0] - 180
+            x -= xd
+
+        if lower_corner[1] < -90:
+            yd = lower_corner[1] + 90
+            y -= yd
+        elif upper_corner[1] > 90:
+            yd = upper_corner[1] - 90
+            y -= yd
+
+        self.static_api_params["ll"] = point_to_str((x, y))
+        self.static_api_params["spn"] = point_to_str((delta, delta))
         self.update_image()
 
     @ll.setter
     def ll(self, ll):
         # Change center of map
-        if not (0 <= ll[0] <= 360 and 0 <= ll[1] <= 180):
+        if not (-180 <= ll[0] <= 180 and -90 <= ll[1] <= 90):
             return
         self._ll = ll
         self.apply_cords()
@@ -68,12 +91,13 @@ class MainWindow(QWidget, Ui_MainWindow):
     @z.setter
     def z(self, z):
         # Change scale of map
-        if not (0 <= z <= 17):
+        if not (5 <= z <= 20):
             return
         self._z = z
         self.apply_cords()
 
     def update_image(self):
+        print(f"z: {self.z}, ll: {self.ll}")
         pprint(self.static_api_params)
 
         # Get image from staticAPI
@@ -89,7 +113,7 @@ class MainWindow(QWidget, Ui_MainWindow):
 
     def move_map(self, dx, dy):
         x, y = self.ll
-        move_delta = 180 / (2 ** self.z)
+        move_delta = 360 / (2 ** self.z)
         x = (x + move_delta * 2 * dx) % 360
         if x > 180:
             x -= 360
