@@ -54,26 +54,27 @@ class MainWindow(QWidget, Ui_MainWindow):
         return self._z
 
     def apply_cords(self):
-        # Translate z and ll to bbox and update image
+        """Translate (z, ll) to (spn, ll)  and update image"""
         x, y = self.ll
-        e = 0
+        e = 2
+        scale_e = e / (2 ** self.z)
         delta = (360 - e) / (2 ** self.z)
         lower_corner = [x - delta / 2, y - delta / 2]
         upper_corner = [x + delta / 2, y + delta / 2]
 
         # Check borders and move map if get out
         if lower_corner[0] <= -180:
-            xd = lower_corner[0] + 180
+            xd = lower_corner[0] + 180 - scale_e
             x -= xd
         elif upper_corner[0] >= 180:
-            xd = upper_corner[0] - 180
+            xd = upper_corner[0] - 180 + scale_e
             x -= xd
 
         if lower_corner[1] < -90:
-            yd = lower_corner[1] + 90
+            yd = lower_corner[1] + 90 - scale_e
             y -= yd
         elif upper_corner[1] > 90:
-            yd = upper_corner[1] - 90
+            yd = upper_corner[1] - 90 + scale_e
             y -= yd
 
         self.static_api_params["ll"] = point_to_str((x, y))
@@ -91,7 +92,7 @@ class MainWindow(QWidget, Ui_MainWindow):
     @z.setter
     def z(self, z):
         # Change scale of map
-        if not (5 <= z <= 20):
+        if not (3 <= z <= 20):
             return
         self._z = z
         self.apply_cords()
