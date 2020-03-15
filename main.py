@@ -21,6 +21,15 @@ def point_to_str(p):
     return "%.8f" % p[0] + "," + "%.8f" % p[1]
 
 
+def lon_mod(lon):  # Return correctly longitude for coords
+    if lon > 180:
+        return lon - 360
+    elif lon <= -180:
+        return lon + 360
+    else:
+        return lon
+
+
 class MainWindow(QWidget, Ui_MainWindow):
     def __init__(self):
         super().__init__()
@@ -28,11 +37,11 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.static_api_params = {'l': 'map',
                                   'size': '450,450'}
 
-        self._z = 4
+        self._z = 17
         self._ll = 37.588392, 55.734036
         self.apply_cords()
 
-        self.found_toponym = None  # Store toponym json if found
+        self._toponym = None  # Store toponym json if found
 
         # Connect layouts buttons
         self.rb_map.toggled.connect(self.change_layouts)
@@ -45,6 +54,8 @@ class MainWindow(QWidget, Ui_MainWindow):
 
         self.cb_pcd.stateChanged.connect(self.show_info)
 
+        self.setMouseTracking(True)
+
     @property
     def ll(self):
         return self._ll
@@ -53,10 +64,14 @@ class MainWindow(QWidget, Ui_MainWindow):
     def z(self):
         return self._z
 
+    @property
+    def toponym(self):
+        return self._toponym
+
     def apply_cords(self):
         """Translate (z, ll) to (spn, ll)  and update image"""
         x, y = self.ll
-        e = 2
+        e = 0
         scale_e = e / (2 ** self.z)
         delta = (360 - e) / (2 ** self.z)
         lower_corner = [x - delta / 2, y - delta / 2]
@@ -97,6 +112,17 @@ class MainWindow(QWidget, Ui_MainWindow):
         self._z = z
         self.apply_cords()
 
+    @toponym.setter
+    def toponym(self, toponym):
+        if toponym:
+            if 'geometry' in toponym:
+                point_coords = ','.join(map(str, toponym["geometry"]["coordinates"]))
+            elif 'Point' in toponym:
+                point_coords = toponym["Point"]["pos"].replace(" ", ",")
+            self.static_api_params['pt'] = f'{point_coords},org'
+        self._toponym = toponym
+        self.show_info()
+
     def update_image(self):
         print(f"z: {self.z}, ll: {self.ll}")
         pprint(self.static_api_params)
@@ -127,6 +153,14 @@ class MainWindow(QWidget, Ui_MainWindow):
         # d - {1, -1}
         self.z += d
 
+    def get_degrees(self, x, y):
+        spn = list(map(lambda coord: float(coord), self.static_api_params['spn'].split(',')))
+        # Get degrees in 1 pixel
+        one_pixel_x, one_pixel_y = map(lambda coord: coord / 450, spn)
+        lon = lon_mod((self.ll[0] - spn[0]) + x * one_pixel_x * 2)  # Get correctly longitude
+        lat = (self.ll[1] + spn[1]) - y * one_pixel_y * 2
+        return [lon, lat] if 0 <= x < 450 and 0 <= y < 450 else None
+
     def change_layouts(self):
         # Update layouts information from buttons
         layouts = ['map' if self.rb_map.isChecked() else 'sat']  # main layout
@@ -138,48 +172,54 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.static_api_params["l"] = ','.join(layouts)
         self.update_image()
 
+    def get_json_from_search(self, search_params, url=SEARCH_URL):  # Get response and return json
+        current_params = search_params
+        current_params['results'], current_params['lang'] = 1, 'ru_RU'
+        search_response = requests.get(url, params=current_params)
+        return search_response.json() if search_response else None
+
+    def found_toponym_coords(self, result_json):  # Processing search response
+        try:
+            if 'features' in result_json:  # Check if response by Search
+                found_toponym = result_json["features"][0]  # Here can be IndexError
+                # So it mean that toponym wasn't found --> Exception
+                toponym_coordinates = found_toponym["geometry"]["coordinates"]
+            elif 'response' in result_json:  # Check if response by Geocoder
+                found_toponym = result_json["response"]["GeoObjectCollection"]["featureMember"] \
+                    [0]["GeoObject"]
+                toponym_coordinates = found_toponym["Point"]["pos"]
+            else:
+                return
+        except (IndexError, TypeError, KeyError):
+            return
+        else:
+           self.toponym = found_toponym
+           return toponym_coordinates
+
     def search_by_button(self):
-        self.clean_result()  # Delete  info about past toponym
+        self.clean_info()  # Delete  info about past toponym
 
         toponym_to_find = self.le_search.text()
 
         # Make search attributes
         search_params = {
             "apikey": SEARCH_KEY,
-            "text": toponym_to_find,
-            "lang": 'ru_RU'}
-        # And get response
-        search_response = requests.get(SEARCH_URL, params=search_params)
-
-        if not search_response:
-            return
-
-        search_response_json = search_response.json()
-
-        # Get list of toponyms for checking found toponym
-        search_toponyms = search_response_json['features']
-
-        if len(search_toponyms):  # Check if the search couldn't found
-            toponym_coordinates = tuple(map(float, search_toponyms[0]["geometry"]["coordinates"]))
-
-            self.found_toponym = search_toponyms[0]
-            self.show_info()
-        else:  # If the toponym weren't found
-            return  # Exit
-
-        # Make a point on the map
-        self.static_api_params['pt'] = f'{",".join(map(str, toponym_coordinates))},org'
-        self.ll = toponym_coordinates  # Update coords of founded toponym
+            "text": toponym_to_find
+        }
+        # Get coords of founded toponym and position the map on them
+        coords = self.found_toponym_coords(self.get_json_from_search(search_params, SEARCH_URL))
+        self.ll = coords if coords else self._ll
 
     def show_info(self):
-        self.pt_info.clear()
+        self.pt_info.clear()  # Delete  info about past toponym
 
-        if self.found_toponym is None:  # If no toponym
+        if self.toponym is None:  # If no toponym
             return
 
         info_to_show = []
-        toponym = self.found_toponym['properties']
-        if 'GeocoderMetaData' in toponym.keys():  # Checking type of toponym: org. or geoobj.
+        toponym = self.toponym['properties'] if 'properties' in self.toponym \
+            else self.toponym['metaDataProperty']  # Get info by type of response
+        if 'GeocoderMetaData' in toponym:  # Checking type of toponym: org. or geoobj.
             info_to_show.append(toponym['GeocoderMetaData']['text'])
         else:
             info_to_show.append(toponym['CompanyMetaData']['address'])
@@ -190,12 +230,11 @@ class MainWindow(QWidget, Ui_MainWindow):
                 "apikey": GEOCODER_API_KEY,
                 "geocode": info_to_show[0],
                 "format": "json"}
-            response = requests.get(GEOCODER_API_URL, params=geocoder_params)
-            json_response = response.json()
+            json_response = self.get_json_from_search(geocoder_params, GEOCODER_API_URL)
             try:
                 postal_code = json_response["response"]["GeoObjectCollection"]["featureMember"][0] \
                     ["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]["Address"]["postal_code"]
-            except KeyError:  # If toponym has not postal code
+            except (KeyError, TypeError):  # If toponym has not postal code
                 postal_code = 'Not found'
 
             info_to_show.append(f'Индекс: {postal_code}')
@@ -204,16 +243,31 @@ class MainWindow(QWidget, Ui_MainWindow):
             self.pt_info.appendPlainText(string)
 
     def clean_result(self):
-        self.remove_point()
         self.clean_info()
+        self.remove_point()
+        self.update_image()  # For removing point
 
     def remove_point(self):  # Delete all info about points on map
         if 'pt' in self.static_api_params:
             del self.static_api_params['pt']
 
     def clean_info(self):  # Clean showed in pt_info (PlainTextEdit) address
-        self.found_toponym = None
         self.pt_info.clear()
+        self.toponym = None
+
+    def mousePressEvent(self, event):
+        x, y = event.x() - 9, event.y() - 15
+        coords = self.get_degrees(x, y)  # Get coords by click
+        if coords:
+            if event.button() == Qt.LeftButton:
+                geocoder_params = {"apikey": GEOCODER_API_KEY,
+                                   "geocode": ','.join(map(str, coords)),
+                                   "format": "json"}
+                self.found_toponym_coords(self.get_json_from_search(geocoder_params,
+                                                                    GEOCODER_API_URL))
+            elif event.button() == Qt.RightButton:
+                pass
+            self.update_image()  # Show point
 
     def keyPressEvent(self, a0: QtGui.QKeyEvent) -> None:
         if a0.key() == Qt.Key_PageUp:
