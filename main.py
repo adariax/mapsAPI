@@ -179,14 +179,10 @@ class MainWindow(QWidget, Ui_MainWindow):
 
     def found_toponym_info(self, result_json):  # Processing search response
         try:
-            if 'features' in result_json:  # Check if response by Search
-                found_toponym = result_json["features"][0]  # Here can be IndexError
-                # So it mean that toponym wasn't found --> Exception
-                toponym_coordinates = found_toponym["geometry"]["coordinates"]
-            elif 'response' in result_json:  # Check if response by Geocoder
-                found_toponym = result_json["response"]["GeoObjectCollection"]["featureMember"] \
-                    [0]["GeoObject"]
-                toponym_coordinates = found_toponym["Point"]["pos"]
+            found_toponym = result_json["features"][0]  # Here can be IndexError
+            # So it mean that toponym wasn't found --> Exception
+            toponym_coordinates = found_toponym["geometry"]["coordinates"]
+            print(found_toponym)
             return (toponym_coordinates, found_toponym)
         except (IndexError, TypeError, KeyError):
             return
@@ -197,10 +193,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         toponym_to_find = self.le_search.text()
 
         # Make search attributes
-        search_params = {
-            "apikey": SEARCH_KEY,
-            "text": toponym_to_find
-        }
+        search_params = {"apikey": SEARCH_KEY, "text": toponym_to_find}
         # Get coords of founded toponym and position the map on them
         coords, self.toponym = self.found_toponym_info(self.get_json(search_params, SEARCH_URL))
         self.ll = coords if coords else self._ll
@@ -255,12 +248,10 @@ class MainWindow(QWidget, Ui_MainWindow):
         x, y = event.x() - 9, event.y() - 15
         coords = self.get_degrees(x, y)  # Get coords by click
         if coords:
+            params = {"apikey": SEARCH_KEY, "text": ','.join(map(str, coords[::-1]))}
             if event.button() == Qt.LeftButton:
-                geocoder_params = {"apikey": GEOCODER_API_KEY,
-                                   "geocode": ','.join(map(str, coords)),
-                                   "format": "json"}
-                self.toponym = self.found_toponym_info(self.get_json(geocoder_params,
-                                                                     GEOCODER_API_URL))[1]
+                params["type"] = 'geo'
+                self.toponym = self.found_toponym_info(self.get_json(params))[1]
             elif event.button() == Qt.RightButton:
                 pass
             self.update_image()  # Show point
