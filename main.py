@@ -1,4 +1,4 @@
-from pprint import pprint
+from typing import Tuple
 
 from PyQt5 import QtGui
 from PyQt5.QtWidgets import QWidget, QApplication
@@ -8,6 +8,7 @@ from ui_window import Ui_MainWindow
 
 import requests
 import sys
+from distance import lonlat_distance
 
 STATIC_API_URL = 'http://static-maps.yandex.ru/1.x/'
 GEOCODER_API_URL = "http://geocode-maps.yandex.ru/1.x/"
@@ -31,7 +32,7 @@ def lon_mod(lon):
         return lon
 
 
-class MainWindow(QWidget, Ui_MainWindow):
+class MapWindow(QWidget, Ui_MainWindow):
     def __init__(self):
         super().__init__()
         super().setupUi(self)
@@ -123,10 +124,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.show_info()
 
     def update_image(self):
-        print(f"z: {self.z}, ll: {self.ll}")
-        pprint(self.static_api_params)
-
-        # Get image from staticAPI
+        """Get image from staticAPI"""
         response = requests.get(STATIC_API_URL, params=self.static_api_params)
         self.map_container.clear()
         if response is None:
@@ -171,19 +169,20 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.static_api_params["l"] = ','.join(layouts)
         self.update_image()
 
-    def get_json(self, search_params, url=SEARCH_URL):  # Get response and return json
+    @staticmethod
+    def get_json(search_params, url=SEARCH_URL):  # Get response and return json
         current_params = search_params
         current_params['results'], current_params['lang'] = 1, 'ru_RU'
         search_response = requests.get(url, params=current_params)
         return search_response.json() if search_response else None
 
-    def found_toponym_info(self, result_json):  # Processing search response
+    @staticmethod
+    def found_toponym_info(result_json):  # Processing search response
         try:
             found_toponym = result_json["features"][0]  # Here can be IndexError
             # So it mean that toponym wasn't found --> Exception
             toponym_coordinates = found_toponym["geometry"]["coordinates"]
-            print(found_toponym)
-            return (toponym_coordinates, found_toponym)
+            return toponym_coordinates, found_toponym
         except (IndexError, TypeError, KeyError):
             return
 
@@ -211,7 +210,7 @@ class MainWindow(QWidget, Ui_MainWindow):
         if 'GeocoderMetaData' in toponym:
             info_to_show.append(toponym['GeocoderMetaData']['text'])
         else:
-            info_to_show.append(toponym['CompanyMetaData']['address'])
+            info_to_show.append(toponym['CompanyMetaData']['name'])
 
         if self.cb_pcd.isChecked():
             # Searching object's postal code
@@ -244,17 +243,47 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.pt_info.clear()
         self.toponym = None
 
+    @staticmethod
+    def get_address(ll: Tuple[int, int]):
+        geocoder_params = {
+            "apikey": GEOCODER_API_KEY,
+            "geocode": ','.join(map(str, ll)),
+            "format": "json"}
+        json_response = MapWindow.get_json(geocoder_params, GEOCODER_API_URL)
+        try:
+            address = json_response["response"]["GeoObjectCollection"]["featureMember"][0] \
+                ["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]['Address']['formatted']
+            return address
+        except IndexError:
+            return
+
     def mousePressEvent(self, event):
         x, y = event.x() - 9, event.y() - 15
         coords = self.get_degrees(x, y)  # Get coords by click
-        if coords:
-            params = {"apikey": SEARCH_KEY, "text": ','.join(map(str, coords[::-1]))}
-            if event.button() == Qt.LeftButton:
-                params["type"] = 'geo'
-                self.toponym = self.found_toponym_info(self.get_json(params))[1]
-            elif event.button() == Qt.RightButton:
-                pass
-            self.update_image()  # Show point
+        if coords is None:
+            return
+        address = MapWindow.get_address(coords)
+        if address is None:
+            return
+
+        params = {"apikey": SEARCH_KEY,
+                  "text": address}
+
+        if event.button() == Qt.LeftButton:
+            params["type"] = 'geo'
+            rez = self.found_toponym_info(self.get_json(params))
+            if rez is None:
+                return
+            self.toponym = rez[1]
+        elif event.button() == Qt.RightButton:
+            params["type"] = 'biz'
+            rez = self.found_toponym_info(self.get_json(params))
+            if rez is None:
+                return
+            biz_coords, toponym = rez
+            if lonlat_distance(coords, biz_coords) <= 50:
+                self.toponym = toponym
+        self.update_image()  # Show point
 
     def keyPressEvent(self, a0: QtGui.QKeyEvent) -> None:
         if a0.key() == Qt.Key_PageUp:
@@ -275,6 +304,6 @@ class MainWindow(QWidget, Ui_MainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    main_window = MainWindow()
+    main_window = MapWindow()
     main_window.show()
     sys.exit(app.exec())
